@@ -1,0 +1,93 @@
+# Ingesta de PDF y Chunking
+
+Ejercicio de ingesta de documentos para IA: leer un PDF real (con **tablas** y páginas **escaneadas**) y dividir su texto en *chunks* con 5 estrategias distintas.
+
+## Qué hace
+
+El programa tiene dos partes:
+
+1. **Ingesta**: lee el PDF página a página.
+   - Si la página tiene texto, lo extrae con `pdfplumber`.
+   - Si la página es una imagen escaneada (casi sin texto), usa OCR con `pytesseract`.
+   - Las tablas se extraen aparte y se añaden al texto con la marca `Tabla:`.
+2. **Chunking**: parte el texto resultante con 5 estrategias.
+
+| Estrategia | Cómo corta |
+|---|---|
+| **Fixed** | Cada N caracteres, sin mirar el contenido |
+| **Overlap** | Como fixed, pero cada chunk repite el final del anterior |
+| **Recursive** | Por párrafo, línea, frase y palabra, del corte más natural al menos natural |
+| **Estructura** | Una sección (título + contenido) por chunk, y cada tabla en su propio chunk |
+| **Semántico** | Cuando cambia el tema entre frases, usando embeddings |
+
+## Requisitos
+
+Python 3.9 o superior y estas librerías:
+
+```bash
+pip install pdfplumber pytesseract pdf2image sentence-transformers numpy
+```
+
+Para el OCR (páginas escaneadas) hacen falta además dos programas del sistema, que no se instalan con `pip`:
+
+- **Tesseract** (con el idioma español `spa`)
+- **Poppler**
+
+| Sistema | Instalación |
+|---|---|
+| Ubuntu/Debian | `sudo apt install tesseract-ocr tesseract-ocr-spa poppler-utils` |
+| Mac | `brew install tesseract tesseract-lang poppler` |
+| Windows | Instalar Tesseract y Poppler y añadir sus carpetas al `PATH` |
+
+> Si el PDF solo tiene páginas con texto, el OCR no se ejecuta y no hacen falta Tesseract ni Poppler.
+
+## Uso
+
+```bash
+python ingesta_unax.py mi_documento.pdf
+```
+
+La primera vez que se ejecuta el chunking semántico se descarga el modelo `paraphrase-multilingual-MiniLM-L12-v2` (unos 470 MB), así que puede tardar un poco. Después va más rápido.
+
+## Ejemplo de salida
+
+Con un PDF de 3 páginas de texto y una tabla:
+
+```
+Pagina 1: texto simple
+Pagina 2: texto simple
+Pagina 3: texto simple
+
+Texto extraido: 2076 caracteres
+
+=== Fixed: 5 chunks ===
+=== Overlap: 6 chunks ===
+=== Recursive: 6 chunks ===
+=== Estructura: 6 chunks ===
+=== Semantico: 44 chunks ===
+Tablas detectadas: 1
+```
+
+## Estructura del código
+
+```
+ingesta_unax.py
+├── tabla_a_texto()          convierte una tabla en texto "celda | celda"
+├── ocr_paginas()            OCR de una página escaneada
+├── ingesta_pdf()            lee el PDF completo (texto, tablas y OCR)
+├── chunking_fixed()         estrategia 1
+├── chunking_overlap()       estrategia 2
+├── chunking_recursive()     estrategia 3
+├── es_titulo()              detecta si una línea es un título
+├── chunking_estructura()    estrategia 4
+├── chunking_semantico()     estrategia 5
+├── mostrar()                imprime el resultado de cada estrategia
+└── main()                   ejecuta todo
+```
+
+## Limitaciones
+
+- **Tablas duplicadas**: `extract_text()` ya incluye los datos de las tablas mezclados con el texto, y después se añaden otra vez como `Tabla:`.
+- **Títulos**: `es_titulo()` solo reconoce títulos numerados (`1.`, `1.2`), que empiezan por "Capítulo", "Artículo", etc., o que están en mayúsculas. Otros títulos se pegan a la sección anterior.
+- **Semántico**: divide el texto por líneas, así que en PDFs con frases partidas genera muchos chunks pequeños. Se puede ajustar el `umbral` (por defecto 0.5).
+- **OCR**: en páginas escaneadas solo se obtiene el texto; no se extraen las tablas. La parte de OCR está implementada, pero no se ha probado con un PDF escaneado real.
